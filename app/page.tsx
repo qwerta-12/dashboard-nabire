@@ -12,12 +12,19 @@ export default function Home() {
   const [kecamatan, setKecamatan] = useState('');
   const [desa, setDesa] = useState('');
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+
+  const rowsPerPage = 25;
 
   useEffect(() => {
     fetch('/data/nabire_bangunan.geojson')
       .then((res) => res.json())
       .then(setGeojson);
   }, []);
+
+  useEffect(() => {
+    setPage(1);
+  }, [kecamatan, desa, search]);
 
   const features = geojson?.features || [];
 
@@ -56,6 +63,13 @@ export default function Home() {
     features: filteredFeatures,
   };
 
+  const totalPages = Math.max(1, Math.ceil(filteredFeatures.length / rowsPerPage));
+
+  const paginatedFeatures = filteredFeatures.slice(
+    (page - 1) * rowsPerPage,
+    page * rowsPerPage
+  );
+
   const totalBangunan = filteredFeatures.reduce(
     (sum: number, f: any) => sum + Number(f.properties.jumlah_bangunan_conf_05 || 0),
     0
@@ -66,30 +80,80 @@ export default function Home() {
     0
   );
 
-  return (
-    <main style={{ minHeight: '100vh', background: '#f1f5f9', padding: '24px', color: '#0f172a' }}>
-      <h1 style={{ fontSize: '28px', fontWeight: 700 }}>
-        Dashboard Estimasi Bangunan Kabupaten Nabire
-      </h1>
-      <p style={{ color: '#64748b', marginTop: '6px' }}>
-        Visualisasi jumlah bangunan per SLS berdasarkan hasil Google Earth Engine.
-      </p>
+  const totalDesa = new Set(filteredFeatures.map((f: any) => f.properties.nmdesa).filter(Boolean)).size;
 
-      <section style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginTop: '24px' }}>
+  const totalKecamatan = new Set(filteredFeatures.map((f: any) => f.properties.nmkec).filter(Boolean)).size;
+
+  const exportFilteredCSV = () => {
+    const headers = [
+      'idsls',
+      'kecamatan',
+      'desa_kelurahan',
+      'nama_sls',
+      'jumlah_bangunan_conf_05',
+      'jumlah_bangunan_all',
+    ];
+
+    const rows = filteredFeatures.map((f: any) => {
+      const p = f.properties;
+
+      return [
+        p.idsls ?? '',
+        p.nmkec ?? '',
+        p.nmdesa ?? '',
+        p.nmsls ?? '',
+        p.jumlah_bangunan_conf_05 ?? 0,
+        p.jumlah_bangunan_all ?? 0,
+      ];
+    });
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map((row: any[]) =>
+        row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(',')
+      ),
+    ].join('\n');
+
+    const blob = new Blob([csvContent], {
+      type: 'text/csv;charset=utf-8;',
+    });
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+
+    link.href = url;
+    link.download = 'data_bangunan_nabire_filtered.csv';
+    link.click();
+
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <main className="min-h-screen bg-slate-100 p-4 text-slate-900 md:p-6">
+      <header className="mb-6">
+        <h1 className="text-2xl font-bold leading-tight md:text-3xl">
+          Dashboard Estimasi Bangunan Kabupaten Nabire
+        </h1>
+        <p className="mt-2 text-sm text-slate-500 md:text-base">
+          Visualisasi jumlah bangunan per SLS berdasarkan hasil Google Earth Engine.
+        </p>
+      </header>
+
+      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Card title="Bangunan Conf > 0.5" value={totalBangunan.toLocaleString('id-ID')} />
         <Card title="Semua Deteksi" value={totalAll.toLocaleString('id-ID')} />
         <Card title="Jumlah SLS" value={filteredFeatures.length.toLocaleString('id-ID')} />
-        <Card title="Jumlah Kecamatan" value={kecamatanList.length.toLocaleString('id-ID')} />
+        <Card title="Kecamatan/Desa" value={`${totalKecamatan} / ${totalDesa}`} />
       </section>
 
-      <section style={{ background: 'white', padding: '16px', borderRadius: '16px', marginTop: '20px', display: 'flex', gap: '12px' }}>
+      <section className="mt-5 grid grid-cols-1 gap-3 rounded-2xl bg-white p-4 shadow-sm md:grid-cols-3">
         <select
           value={kecamatan}
           onChange={(e) => {
             setKecamatan(e.target.value);
             setDesa('');
           }}
-          style={inputStyle}
+          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
         >
           <option value="">Semua Kecamatan</option>
           {kecamatanList.map((item: any) => (
@@ -97,7 +161,11 @@ export default function Home() {
           ))}
         </select>
 
-        <select value={desa} onChange={(e) => setDesa(e.target.value)} style={inputStyle}>
+        <select
+          value={desa}
+          onChange={(e) => setDesa(e.target.value)}
+          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
+        >
           <option value="">Semua Desa/Kelurahan</option>
           {desaList.map((item: any) => (
             <option key={item} value={item}>{item}</option>
@@ -108,20 +176,71 @@ export default function Home() {
           placeholder="Cari IDSLS / nama SLS..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          style={inputStyle}
+          className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
         />
       </section>
 
-      <section style={{ marginTop: '20px', background: 'white', padding: '16px', borderRadius: '16px' }}>
-        <MapView data={filteredGeojson} />
+      <section className="mt-5 grid grid-cols-1 gap-5 xl:grid-cols-[1.7fr_1fr]">
+        <div className="rounded-2xl bg-white p-4 shadow-sm">
+          <div className="mb-3 flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+            <h2 className="text-lg font-bold">Peta SLS Nabire</h2>
+            <span className="text-sm text-slate-500">
+              {filteredFeatures.length.toLocaleString('id-ID')} SLS ditampilkan
+            </span>
+          </div>
+          <MapView data={filteredGeojson} />
+        </div>
+
+        <div className="rounded-2xl bg-white p-4 shadow-sm">
+          <h2 className="mb-3 text-lg font-bold">Ringkasan Wilayah</h2>
+
+          <div className="space-y-3">
+            <InfoRow label="Filter Kecamatan" value={kecamatan || 'Semua'} />
+            <InfoRow label="Filter Desa/Kelurahan" value={desa || 'Semua'} />
+            <InfoRow label="Total SLS Terfilter" value={filteredFeatures.length.toLocaleString('id-ID')} />
+            <InfoRow
+              label="Rata-rata Bangunan/SLS"
+              value={
+                filteredFeatures.length
+                  ? Math.round(totalBangunan / filteredFeatures.length).toLocaleString('id-ID')
+                  : '0'
+              }
+            />
+          </div>
+
+          <div className="mt-5 rounded-xl bg-slate-50 p-4 text-sm text-slate-600">
+            Warna peta menunjukkan estimasi jumlah bangunan:
+            <div className="mt-3 space-y-2">
+              <Legend color="bg-green-600" label="0 - 50 bangunan" />
+              <Legend color="bg-yellow-300" label="51 - 100 bangunan" />
+              <Legend color="bg-orange-500" label="101 - 150 bangunan" />
+              <Legend color="bg-red-600" label="> 150 bangunan" />
+            </div>
+          </div>
+        </div>
       </section>
 
-      <section style={{ marginTop: '20px', background: 'white', padding: '16px', borderRadius: '16px' }}>
-        <h2 style={{ fontSize: '20px', fontWeight: 700, marginBottom: '12px' }}>Tabel Detail SLS</h2>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+      <section className="mt-5 rounded-2xl bg-white p-4 shadow-sm">
+        <div className="mb-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-lg font-bold">Tabel Detail SLS</h2>
+            <span className="text-sm text-slate-500">
+              Halaman {page} dari {totalPages} • {filteredFeatures.length.toLocaleString('id-ID')} data
+            </span>
+          </div>
+
+          <button
+            onClick={exportFilteredCSV}
+            className="w-full rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 md:w-auto"
+          >
+            Export CSV Sesuai Filter
+          </button>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="min-w-[850px] w-full border-collapse text-sm">
             <thead>
-              <tr style={{ background: '#f8fafc' }}>
+              <tr className="bg-slate-50 text-left text-slate-600">
                 <Th>IDSLS</Th>
                 <Th>Kecamatan</Th>
                 <Th>Desa/Kelurahan</Th>
@@ -130,52 +249,112 @@ export default function Home() {
                 <Th>Semua Deteksi</Th>
               </tr>
             </thead>
-<tbody>
-  {filteredFeatures.slice(0, 100).map((f: any, index: number) => {
-    const p = f.properties;
+            <tbody>
+              {paginatedFeatures.map((f: any, index: number) => {
+                const p = f.properties;
 
-    return (
-      <tr
-        key={`${p.idsls}-${index}`}
-        style={{ borderBottom: '1px solid #e2e8f0' }}
-      >
-        <Td>{p.idsls}</Td>
-        <Td>{p.nmkec}</Td>
-        <Td>{p.nmdesa}</Td>
-        <Td>{p.nmsls}</Td>
-        <Td>{p.jumlah_bangunan_conf_05}</Td>
-        <Td>{p.jumlah_bangunan_all}</Td>
-      </tr>
-    );
-  })}
-</tbody>
+                return (
+                  <tr key={`${p.idsls}-${page}-${index}`} className="border-b border-slate-200">
+                    <Td>{p.idsls}</Td>
+                    <Td>{p.nmkec}</Td>
+                    <Td>{p.nmdesa}</Td>
+                    <Td>{p.nmsls}</Td>
+                    <Td>{p.jumlah_bangunan_conf_05}</Td>
+                    <Td>{p.jumlah_bangunan_all}</Td>
+                  </tr>
+                );
+              })}
+            </tbody>
           </table>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center justify-center gap-1">
+          <button
+            onClick={() => setPage((p) => Math.max(p - 1, 1))}
+            disabled={page === 1}
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm disabled:opacity-40"
+          >
+            ‹
+          </button>
+
+          {getPageNumbers(page, totalPages).map((num, index) =>
+            num === '...' ? (
+              <span key={`dots-${index}`} className="px-2 text-slate-400">...</span>
+            ) : (
+              <button
+                key={num}
+                onClick={() => setPage(Number(num))}
+                className={`rounded-lg border px-3 py-2 text-sm ${
+                  page === num
+                    ? 'border-blue-600 bg-blue-600 text-white'
+                    : 'border-slate-300 bg-white text-slate-700'
+                }`}
+              >
+                {num}
+              </button>
+            )
+          )}
+
+          <button
+            onClick={() => setPage((p) => Math.min(p + 1, totalPages))}
+            disabled={page === totalPages}
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm disabled:opacity-40"
+          >
+            ›
+          </button>
         </div>
       </section>
     </main>
   );
 }
 
+function getPageNumbers(currentPage: number, totalPages: number) {
+  if (totalPages <= 5) {
+    return Array.from({ length: totalPages }, (_, i) => i + 1);
+  }
+
+  if (currentPage <= 3) {
+    return [1, 2, 3, 4, '...', totalPages];
+  }
+
+  if (currentPage >= totalPages - 2) {
+    return [1, '...', totalPages - 3, totalPages - 2, totalPages - 1, totalPages];
+  }
+
+  return [1, '...', currentPage - 1, currentPage, currentPage + 1, '...', totalPages];
+}
+
 function Card({ title, value }: { title: string; value: string }) {
   return (
-    <div style={{ background: 'white', padding: '20px', borderRadius: '16px' }}>
-      <div style={{ color: '#64748b', fontSize: '14px' }}>{title}</div>
-      <div style={{ fontSize: '30px', fontWeight: 700, marginTop: '8px' }}>{value}</div>
+    <div className="rounded-2xl bg-white p-5 shadow-sm">
+      <div className="text-sm text-slate-500">{title}</div>
+      <div className="mt-2 text-2xl font-bold md:text-3xl">{value}</div>
+    </div>
+  );
+}
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3">
+      <span className="text-sm text-slate-500">{label}</span>
+      <span className="text-sm font-semibold text-slate-900">{value}</span>
+    </div>
+  );
+}
+
+function Legend({ color, label }: { color: string; label: string }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className={`h-3 w-3 rounded-full ${color}`} />
+      <span>{label}</span>
     </div>
   );
 }
 
 function Th({ children }: { children: React.ReactNode }) {
-  return <th style={{ padding: '10px', textAlign: 'left', color: '#475569' }}>{children}</th>;
+  return <th className="whitespace-nowrap px-3 py-3 font-semibold">{children}</th>;
 }
 
 function Td({ children }: { children: React.ReactNode }) {
-  return <td style={{ padding: '10px' }}>{children}</td>;
+  return <td className="whitespace-nowrap px-3 py-3">{children}</td>;
 }
-
-const inputStyle = {
-  padding: '10px 12px',
-  border: '1px solid #cbd5e1',
-  borderRadius: '10px',
-  minWidth: '220px',
-};

@@ -11,13 +11,17 @@ export default function MapView({ data }: Props) {
   const center: LatLngExpression = [-3.36, 135.5];
 
   return (
-    <div style={{ height: '560px', width: '100%', borderRadius: '16px', overflow: 'hidden' }}>
-      <MapContainer center={center} zoom={9} style={{ height: '100%', width: '100%' }}>
+    <div className="h-[420px] w-full overflow-hidden rounded-2xl md:h-[600px]">
+      <MapContainer
+        center={center}
+        zoom={9}
+        className="h-full w-full"
+      >
         <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
 
         {data && (
           <GeoJSON
-            key={JSON.stringify(data.features?.map((f: any) => f.properties?.idsls))}
+            key={JSON.stringify(data.features?.map((f: any, i: number) => `${f.properties?.idsls}-${i}`))}
             data={data}
             style={(feature: any) => {
               const val = feature?.properties?.jumlah_bangunan_conf_05 || 0;
