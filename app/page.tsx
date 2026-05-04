@@ -7,12 +7,16 @@ const MapView = dynamic(() => import('../components/MapView'), {
   ssr: false,
 });
 
+type SortDirection = 'asc' | 'desc';
+
 export default function Home() {
   const [geojson, setGeojson] = useState<any>(null);
   const [kecamatan, setKecamatan] = useState('');
   const [desa, setDesa] = useState('');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
+  const [sortField, setSortField] = useState('jumlah_bangunan_conf_05');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
 
   const rowsPerPage = 25;
 
@@ -24,7 +28,7 @@ export default function Home() {
 
   useEffect(() => {
     setPage(1);
-  }, [kecamatan, desa, search]);
+  }, [kecamatan, desa, search, sortField, sortDirection]);
 
   const features = geojson?.features || [];
 
@@ -58,31 +62,58 @@ export default function Home() {
     });
   }, [features, kecamatan, desa, search]);
 
+  const sortedFeatures = useMemo(() => {
+    return [...filteredFeatures].sort((a: any, b: any) => {
+      const aValue = a.properties?.[sortField] ?? '';
+      const bValue = b.properties?.[sortField] ?? '';
+
+      const aNumber = Number(aValue);
+      const bNumber = Number(bValue);
+      const bothNumber = !Number.isNaN(aNumber) && !Number.isNaN(bNumber);
+
+      if (bothNumber) {
+        return sortDirection === 'asc' ? aNumber - bNumber : bNumber - aNumber;
+      }
+
+      return sortDirection === 'asc'
+        ? String(aValue).localeCompare(String(bValue))
+        : String(bValue).localeCompare(String(aValue));
+    });
+  }, [filteredFeatures, sortField, sortDirection]);
+
   const filteredGeojson = {
     type: 'FeatureCollection',
-    features: filteredFeatures,
+    features: sortedFeatures,
   };
 
-  const totalPages = Math.max(1, Math.ceil(filteredFeatures.length / rowsPerPage));
+  const totalPages = Math.max(1, Math.ceil(sortedFeatures.length / rowsPerPage));
 
-  const paginatedFeatures = filteredFeatures.slice(
+  const paginatedFeatures = sortedFeatures.slice(
     (page - 1) * rowsPerPage,
     page * rowsPerPage
   );
 
-  const totalBangunan = filteredFeatures.reduce(
+  const totalBangunan = sortedFeatures.reduce(
     (sum: number, f: any) => sum + Number(f.properties.jumlah_bangunan_conf_05 || 0),
     0
   );
 
-  const totalAll = filteredFeatures.reduce(
+  const totalAll = sortedFeatures.reduce(
     (sum: number, f: any) => sum + Number(f.properties.jumlah_bangunan_all || 0),
     0
   );
 
-  const totalDesa = new Set(filteredFeatures.map((f: any) => f.properties.nmdesa).filter(Boolean)).size;
+  const totalDesa = new Set(sortedFeatures.map((f: any) => f.properties.nmdesa).filter(Boolean)).size;
+  const totalKecamatan = new Set(sortedFeatures.map((f: any) => f.properties.nmkec).filter(Boolean)).size;
 
-  const totalKecamatan = new Set(filteredFeatures.map((f: any) => f.properties.nmkec).filter(Boolean)).size;
+  const handleSort = (field: string) => {
+    if (sortField === field) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDirection(field.includes('jumlah') ? 'desc' : 'asc');
+    }
+  };
 
   const exportFilteredCSV = () => {
     const headers = [
@@ -94,7 +125,7 @@ export default function Home() {
       'jumlah_bangunan_all',
     ];
 
-    const rows = filteredFeatures.map((f: any) => {
+    const rows = sortedFeatures.map((f: any) => {
       const p = f.properties;
 
       return [
@@ -142,7 +173,7 @@ export default function Home() {
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Card title="Bangunan Conf > 0.5" value={totalBangunan.toLocaleString('id-ID')} />
         <Card title="Semua Deteksi" value={totalAll.toLocaleString('id-ID')} />
-        <Card title="Jumlah SLS" value={filteredFeatures.length.toLocaleString('id-ID')} />
+        <Card title="Jumlah SLS" value={sortedFeatures.length.toLocaleString('id-ID')} />
         <Card title="Kecamatan/Desa" value={`${totalKecamatan} / ${totalDesa}`} />
       </section>
 
@@ -185,7 +216,7 @@ export default function Home() {
           <div className="mb-3 flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
             <h2 className="text-lg font-bold">Peta SLS Nabire</h2>
             <span className="text-sm text-slate-500">
-              {filteredFeatures.length.toLocaleString('id-ID')} SLS ditampilkan
+              {sortedFeatures.length.toLocaleString('id-ID')} SLS ditampilkan
             </span>
           </div>
           <MapView data={filteredGeojson} />
@@ -197,12 +228,12 @@ export default function Home() {
           <div className="space-y-3">
             <InfoRow label="Filter Kecamatan" value={kecamatan || 'Semua'} />
             <InfoRow label="Filter Desa/Kelurahan" value={desa || 'Semua'} />
-            <InfoRow label="Total SLS Terfilter" value={filteredFeatures.length.toLocaleString('id-ID')} />
+            <InfoRow label="Total SLS Terfilter" value={sortedFeatures.length.toLocaleString('id-ID')} />
             <InfoRow
               label="Rata-rata Bangunan/SLS"
               value={
-                filteredFeatures.length
-                  ? Math.round(totalBangunan / filteredFeatures.length).toLocaleString('id-ID')
+                sortedFeatures.length
+                  ? Math.round(totalBangunan / sortedFeatures.length).toLocaleString('id-ID')
                   : '0'
               }
             />
@@ -225,7 +256,7 @@ export default function Home() {
           <div>
             <h2 className="text-lg font-bold">Tabel Detail SLS</h2>
             <span className="text-sm text-slate-500">
-              Halaman {page} dari {totalPages} • {filteredFeatures.length.toLocaleString('id-ID')} data
+              Halaman {page} dari {totalPages} • {sortedFeatures.length.toLocaleString('id-ID')} data
             </span>
           </div>
 
@@ -238,15 +269,27 @@ export default function Home() {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="min-w-[850px] w-full border-collapse text-sm">
+          <table className="min-w-[900px] w-full border-collapse text-sm">
             <thead>
               <tr className="bg-slate-50 text-left text-slate-600">
-                <Th>IDSLS</Th>
-                <Th>Kecamatan</Th>
-                <Th>Desa/Kelurahan</Th>
-                <Th>Nama SLS</Th>
-                <Th>Bangunan Conf &gt; 0.5</Th>
-                <Th>Semua Deteksi</Th>
+                <SortableTh field="idsls" sortField={sortField} sortDirection={sortDirection} onSort={handleSort}>
+                  IDSLS
+                </SortableTh>
+                <SortableTh field="nmkec" sortField={sortField} sortDirection={sortDirection} onSort={handleSort}>
+                  Kecamatan
+                </SortableTh>
+                <SortableTh field="nmdesa" sortField={sortField} sortDirection={sortDirection} onSort={handleSort}>
+                  Desa/Kelurahan
+                </SortableTh>
+                <SortableTh field="nmsls" sortField={sortField} sortDirection={sortDirection} onSort={handleSort}>
+                  Nama SLS
+                </SortableTh>
+                <SortableTh field="jumlah_bangunan_conf_05" sortField={sortField} sortDirection={sortDirection} onSort={handleSort}>
+                  Bangunan Conf &gt; 0.5
+                </SortableTh>
+                <SortableTh field="jumlah_bangunan_all" sortField={sortField} sortDirection={sortDirection} onSort={handleSort}>
+                  Semua Deteksi
+                </SortableTh>
               </tr>
             </thead>
             <tbody>
@@ -309,18 +352,9 @@ export default function Home() {
 }
 
 function getPageNumbers(currentPage: number, totalPages: number) {
-  if (totalPages <= 5) {
-    return Array.from({ length: totalPages }, (_, i) => i + 1);
-  }
-
-  if (currentPage <= 3) {
-    return [1, 2, 3, 4, '...', totalPages];
-  }
-
-  if (currentPage >= totalPages - 2) {
-    return [1, '...', totalPages - 3, totalPages - 2, totalPages - 1, totalPages];
-  }
-
+  if (totalPages <= 5) return Array.from({ length: totalPages }, (_, i) => i + 1);
+  if (currentPage <= 3) return [1, 2, 3, 4, '...', totalPages];
+  if (currentPage >= totalPages - 2) return [1, '...', totalPages - 3, totalPages - 2, totalPages - 1, totalPages];
   return [1, '...', currentPage - 1, currentPage, currentPage + 1, '...', totalPages];
 }
 
@@ -351,8 +385,34 @@ function Legend({ color, label }: { color: string; label: string }) {
   );
 }
 
-function Th({ children }: { children: React.ReactNode }) {
-  return <th className="whitespace-nowrap px-3 py-3 font-semibold">{children}</th>;
+function SortableTh({
+  children,
+  field,
+  sortField,
+  sortDirection,
+  onSort,
+}: {
+  children: React.ReactNode;
+  field: string;
+  sortField: string;
+  sortDirection: SortDirection;
+  onSort: (field: string) => void;
+}) {
+  const active = sortField === field;
+
+  return (
+    <th className="whitespace-nowrap px-3 py-3 font-semibold">
+      <button
+        onClick={() => onSort(field)}
+        className="flex items-center gap-1 hover:text-blue-600"
+      >
+        {children}
+        <span className="text-xs">
+          {active ? (sortDirection === 'asc' ? '▲' : '▼') : '↕'}
+        </span>
+      </button>
+    </th>
+  );
 }
 
 function Td({ children }: { children: React.ReactNode }) {
